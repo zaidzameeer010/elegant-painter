@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import { PhotoIcon, VideoCameraIcon } from '@heroicons/react/24/outline';
+import { motion } from 'framer-motion';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -33,48 +34,64 @@ const UploadModal: React.FC<UploadModalProps> = ({
     e.target.value = '';
   }, [onUpload, onClose]);
 
-  return (
-    <div onClick={(e) => e.stopPropagation()}>
-      <div className="flex flex-col gap-3">
-        {/* Image Upload Option */}
-        <div className="flex items-center gap-3">
-          <label className="flex-1 flex items-center gap-2 bg-white border-2 border-gray-200 hover:border-blue-500 rounded-lg p-3 cursor-pointer transition-colors group">
-            <div className="p-2 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
-              <PhotoIcon className="w-5 h-5 text-blue-600" />
-            </div>
-            <div className="flex flex-col items-start">
-              <span className="text-sm font-medium text-gray-900">Upload Image</span>
-              <span className="text-xs text-gray-500">{imageTypes.map(type => type.split('/')[1].toUpperCase()).join(', ')}</span>
-            </div>
-            <input
-              type="file"
-              className="hidden"
-              accept={imageTypes.join(',')}
-              onChange={handleImageInput}
-            />
-          </label>
-        </div>
+  if (!isOpen) return null;
 
-        {/* Video Upload Option */}
-        <div className="flex items-center gap-3">
-          <label className="flex-1 flex items-center gap-2 bg-white border-2 border-gray-200 hover:border-blue-500 rounded-lg p-3 cursor-pointer transition-colors group">
-            <div className="p-2 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
-              <VideoCameraIcon className="w-5 h-5 text-blue-600" />
-            </div>
-            <div className="flex flex-col items-start">
-              <span className="text-sm font-medium text-gray-900">Upload Video</span>
-              <span className="text-xs text-gray-500">{videoTypes.map(type => type.split('/')[1].toUpperCase()).join(', ')}</span>
-            </div>
-            <input
-              type="file"
-              className="hidden"
-              accept={videoTypes.join(',')}
-              onChange={handleVideoInput}
-            />
-          </label>
+  return (
+    <motion.div 
+      className="upload-modal"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+    >
+      <motion.div 
+        className="upload-modal-content"
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex flex-col gap-3">
+          {/* Image Upload Option */}
+          <div className="flex items-center gap-3">
+            <label className="flex-1 flex items-center gap-2 bg-white border-2 border-gray-200 hover:border-blue-500 rounded-lg p-3 cursor-pointer transition-colors group">
+              <div className="p-2 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
+                <PhotoIcon className="w-5 h-5 text-blue-600" />
+              </div>
+              <div className="flex flex-col items-start">
+                <span className="text-sm font-medium text-gray-900">Upload Image</span>
+                <span className="text-xs text-gray-500">{imageTypes.map(type => type.split('/')[1].toUpperCase()).join(', ')}</span>
+              </div>
+              <input
+                type="file"
+                className="hidden"
+                accept={imageTypes.join(',')}
+                onChange={handleImageInput}
+              />
+            </label>
+          </div>
+
+          {/* Video Upload Option */}
+          <div className="flex items-center gap-3">
+            <label className="flex-1 flex items-center gap-2 bg-white border-2 border-gray-200 hover:border-blue-500 rounded-lg p-3 cursor-pointer transition-colors group">
+              <div className="p-2 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
+                <VideoCameraIcon className="w-5 h-5 text-blue-600" />
+              </div>
+              <div className="flex flex-col items-start">
+                <span className="text-sm font-medium text-gray-900">Upload Video</span>
+                <span className="text-xs text-gray-500">{videoTypes.map(type => type.split('/')[1].toUpperCase()).join(', ')}</span>
+              </div>
+              <input
+                type="file"
+                className="hidden"
+                accept={videoTypes.join(',')}
+                onChange={handleVideoInput}
+              />
+            </label>
+          </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
 

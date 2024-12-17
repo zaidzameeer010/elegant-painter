@@ -140,4 +140,8 @@
            rounded-lg cursor-pointer 
            hover:bg-blue-600 transition-colors;
   }
+
+  .cursor-canvas {
+    @apply fixed inset-0 pointer-events-none z-40;
+  }
 }

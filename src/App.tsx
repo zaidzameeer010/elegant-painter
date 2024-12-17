@@ -4,7 +4,6 @@ import { HexColorPicker } from 'react-colorful';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   PaintBrushIcon,
-  BackspaceIcon as EraserIcon,
   SwatchIcon,
   TrashIcon,
   PhotoIcon,
@@ -13,7 +12,7 @@ import {
 import { gsap } from 'gsap';
 import UploadModal from './components/UploadModal';
 
-type Tool = 'brush' | 'eraser' | 'select';
+type Tool = 'brush' | 'select';
 
 interface ToolButtonProps {
   isActive: boolean;
@@ -344,11 +343,12 @@ function App() {
   const [tool, setTool] = useState<Tool>('brush');
   const [brushSize, setBrushSize] = useState(5);
   const brushPopupRef = useRef<HTMLDivElement>(null);
-  const eraserPopupRef = useRef<HTMLDivElement>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
-  const [activePopup, setActivePopup] = useState<'brush' | 'eraser' | 'color' | null>(null);
+  const [activePopup, setActivePopup] = useState<'brush' | 'color' | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const uploadButtonRef = useRef<HTMLDivElement>(null);
+  const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
+  const cursorCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const initCanvas = useCallback(() => {
     if (!canvasRef.current) return;
@@ -360,9 +360,13 @@ function App() {
       backgroundColor: '#F3F4F6',
       selection: true,
       preserveObjectStacking: true,
+      perPixelTargetFind: false,
+      targetFindTolerance: 5
     });
 
     canvas.freeDrawingBrush = new PencilBrush(canvas);
+    canvas.freeDrawingBrush.color = '#000000';
+    canvas.freeDrawingBrush.width = 5;
     setFabricCanvas(canvas);
 
     return canvas;
@@ -687,159 +691,37 @@ function App() {
   useEffect(() => {
     if (!fabricCanvas) return;
 
-    const updateObjectProperties = () => {
-      const objects = fabricCanvas.getObjects();
-      const isSelectTool = tool === 'select';
-      
-      objects.forEach(obj => {
+    if (tool === 'brush') {
+      fabricCanvas.isDrawingMode = true;
+      fabricCanvas.selection = false;
+      fabricCanvas.forEachObject((obj) => {
         if (obj instanceof FabricImage) {
-          obj.set({
-            hasControls: isSelectTool,
-            hasBorders: isSelectTool,
-            selectable: isSelectTool,
-            evented: isSelectTool,
-            hoverCursor: isSelectTool ? 'move' : 'crosshair'
-          });
+          obj.selectable = false;
+          obj.evented = false;
+          obj.hoverCursor = 'crosshair';
         }
       });
-      fabricCanvas.renderAll();
-    };
-
-    // Update object properties when tool changes
-    updateObjectProperties();
-
-    // Handle selection events
-    fabricCanvas.on('selection:created', (e) => {
-      const selectedObject = e.selected?.[0];
-      if (selectedObject && selectedObject instanceof FabricImage) {
-        setTool('select');
+      fabricCanvas.defaultCursor = 'crosshair';
+      fabricCanvas.hoverCursor = 'crosshair';
+      if (fabricCanvas.freeDrawingBrush) {
+        fabricCanvas.freeDrawingBrush.color = color;
+        fabricCanvas.freeDrawingBrush.width = brushSize;
       }
-    });
-
-    fabricCanvas.on('selection:updated', (e) => {
-      const selectedObject = e.selected?.[0];
-      if (selectedObject && selectedObject instanceof FabricImage) {
-        setTool('select');
-      }
-    });
-
-    fabricCanvas.on('selection:cleared', () => {
-      // Don't change the tool here, just update object properties based on current tool
-      updateObjectProperties();
-    });
-
-    return () => {
-      fabricCanvas.off('selection:created');
-      fabricCanvas.off('selection:updated');
-      fabricCanvas.off('selection:cleared');
-    };
-  }, [fabricCanvas, tool]);
-
-  useEffect(() => {
-    if (!fabricCanvas) return;
-
-    fabricCanvas.isDrawingMode = tool === 'brush' || tool === 'eraser';
-    
-    // Initialize freeDrawingBrush if it doesn't exist
-    if (!fabricCanvas.freeDrawingBrush) {
-      fabricCanvas.freeDrawingBrush = new PencilBrush(fabricCanvas);
-    }
-    
-    // Configure brush properties
-    const brush = fabricCanvas.freeDrawingBrush;
-    if (brush) {
-      if (tool === 'brush') {
-        brush.color = color;
-        brush.width = brushSize;
-      } else if (tool === 'eraser') {
-        brush.color = '#F3F4F6'; // background color
-        brush.width = brushSize;
-      }
-    }
-
-    // Configure canvas and object properties
-    fabricCanvas.getObjects().forEach(obj => {
-      if (obj instanceof FabricImage) {
-        const isSelected = fabricCanvas?.getActiveObject() === obj;
-        obj.set({
-          selectable: tool === 'select',
-          evented: tool === 'select',
-          hasControls: isSelected && tool === 'select',
-          hasBorders: isSelected && tool === 'select',
-          hoverCursor: tool === 'select' ? 'move' : 'default',
-          lockMovementX: tool !== 'select',
-          lockMovementY: tool !== 'select',
-          perPixelTargetFind: true,
-          lockScalingFlip: true,
-          crossOrigin: 'anonymous'
-        });
-      } else {
-        // For non-image objects (like brush strokes)
-        obj.set({
-          selectable: false,
-          evented: false,
-          hasControls: false,
-          hasBorders: false,
-          hoverCursor: 'default',
-          lockMovementX: true,
-          lockMovementY: true
-        });
-      }
-    });
-
-    // Prevent eraser from affecting images
-    fabricCanvas.on('path:created', (e: any) => {
-      if (tool === 'eraser') {
-        const path = e.path;
-        path.set({
-          selectable: false,
-          evented: false,
-          hasControls: false,
-          hasBorders: false
-        });
-        
-        const objects = fabricCanvas.getObjects();
-        
-        // Move eraser path to the bottom (index 0)
-        const currentIndex = objects.indexOf(path);
-        if (currentIndex > 0) {
-          objects.splice(currentIndex, 1);
-          objects.unshift(path);
-          fabricCanvas._objects = objects;
+    } else {
+      fabricCanvas.isDrawingMode = false;
+      fabricCanvas.selection = true;
+      fabricCanvas.forEachObject((obj) => {
+        if (obj instanceof FabricImage) {
+          obj.selectable = true;
+          obj.evented = true;
+          obj.hoverCursor = 'move';
         }
-        
-        // Move all images to the top
-        const images = objects.filter(obj => obj instanceof FabricImage);
-        images.forEach(img => {
-          const imgIndex = objects.indexOf(img);
-          if (imgIndex < objects.length - 1) {
-            objects.splice(imgIndex, 1);
-            objects.push(img);
-          }
-        });
-        
-        fabricCanvas._objects = objects;
-        fabricCanvas.renderAll();
-      } else {
-        // For brush strokes
-        const path = e.path;
-        path.set({
-          selectable: false,
-          evented: false,
-          hasControls: false,
-          hasBorders: false,
-          hoverCursor: 'default',
-          lockMovementX: true,
-          lockMovementY: true
-        });
-      }
-    });
-    
-    fabricCanvas.renderAll();
+      });
+      fabricCanvas.defaultCursor = 'default';
+      fabricCanvas.hoverCursor = 'move';
+    }
 
-    return () => {
-      fabricCanvas.off('path:created');
-    };
+    fabricCanvas.renderAll();
   }, [fabricCanvas, tool, color, brushSize]);
 
   useEffect(() => {
@@ -848,8 +730,12 @@ function App() {
     const handleMouseDown = (options: { e: MouseEvent | TouchEvent; pointer: { x: number; y: number } }) => {
       const target = fabricCanvas.findTarget(options.e as any);
       
-      if (target instanceof FabricImage && tool === 'select') {
-        // Clicked on an image while in select mode
+      if (tool === 'brush') {
+        fabricCanvas.isDrawingMode = true;
+        fabricCanvas.selection = false;
+        fabricCanvas.discardActiveObject();
+        fabricCanvas.renderAll();
+      } else if (target instanceof FabricImage && tool === 'select') {
         fabricCanvas.setActiveObject(target);
         target.set({
           hasControls: true,
@@ -860,31 +746,20 @@ function App() {
         });
         fabricCanvas.isDrawingMode = false;
         fabricCanvas.renderAll();
-      } else {
-        // Clicked outside image or not in select mode
-        if (tool === 'brush' || tool === 'eraser') {
-          fabricCanvas.discardActiveObject();
-          fabricCanvas.isDrawingMode = true;
-          fabricCanvas.renderAll();
-        }
       }
     };
 
     const handleSelectionCleared = () => {
-      fabricCanvas.getObjects().forEach(obj => {
-        if (obj instanceof FabricImage) {
-          obj.set({
-            hasControls: false,
-            hasBorders: false,
-            hoverCursor: tool === 'select' ? 'move' : 'default',
-            lockMovementX: tool !== 'select',
-            lockMovementY: tool !== 'select'
-          });
-        }
-      });
-      
-      if (tool === 'brush' || tool === 'eraser') {
+      if (tool === 'brush') {
         fabricCanvas.isDrawingMode = true;
+        fabricCanvas.selection = false;
+        fabricCanvas.forEachObject((obj) => {
+          if (obj instanceof FabricImage) {
+            obj.selectable = false;
+            obj.evented = false;
+            obj.hoverCursor = 'crosshair';
+          }
+        });
       }
       fabricCanvas.renderAll();
     };
@@ -931,7 +806,7 @@ function App() {
       });
       
       // Clear selection if switching to drawing tools
-      if (tool === 'brush' || tool === 'eraser') {
+      if (tool === 'brush') {
         fabricCanvas.discardActiveObject();
       }
       
@@ -985,13 +860,14 @@ function App() {
     if (fabricCanvas) {
       const activeObject = fabricCanvas.getActiveObject();
       
-      if (newTool === 'brush' || newTool === 'eraser') {
+      if (newTool === 'brush') {
         if (!activeObject) {
           fabricCanvas.isDrawingMode = true;
         }
         if (fabricCanvas.freeDrawingBrush) {
-          fabricCanvas.freeDrawingBrush.color = newTool === 'eraser' ? '#F3F4F6' : color;
+          fabricCanvas.freeDrawingBrush.color = color;
           fabricCanvas.freeDrawingBrush.width = brushSize;
+          (fabricCanvas.freeDrawingBrush as any).globalCompositeOperation = 'source-over';
         }
       } else {
         fabricCanvas.isDrawingMode = false;
@@ -1026,7 +902,6 @@ function App() {
       // Don't close if clicking inside the popups
       if (
         brushPopupRef.current?.contains(target) ||
-        eraserPopupRef.current?.contains(target) ||
         colorPickerRef.current?.contains(target)
       ) {
         return;
@@ -1062,9 +937,143 @@ function App() {
     };
   }, [fabricCanvas]);
 
+  useEffect(() => {
+    if (!cursorCanvasRef.current) return;
+    
+    const cursorCanvas = cursorCanvasRef.current;
+    const ctx = cursorCanvas.getContext('2d');
+    if (!ctx) return;
+
+    // Match cursor canvas size to window
+    cursorCanvas.width = window.innerWidth;
+    cursorCanvas.height = window.innerHeight;
+
+    // Handle resize
+    const handleResize = () => {
+      cursorCanvas.width = window.innerWidth;
+      cursorCanvas.height = window.innerHeight;
+    };
+
+    window.addEventListener('resize', handleResize);
+    
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (!cursorCanvasRef.current || !cursorPosition) return;
+    
+    const cursorCanvas = cursorCanvasRef.current;
+    const ctx = cursorCanvas.getContext('2d');
+    if (!ctx) return;
+
+    // Clear previous cursor
+    ctx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+
+    // Only show cursor for brush
+    if (tool === 'brush' && cursorPosition) {
+      // Draw outer circle (stroke)
+      ctx.beginPath();
+      ctx.arc(
+        cursorPosition.x,
+        cursorPosition.y,
+        brushSize / 2,
+        0,
+        Math.PI * 2
+      );
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Draw inner circle (fill)
+      ctx.beginPath();
+      ctx.arc(
+        cursorPosition.x,
+        cursorPosition.y,
+        brushSize / 2,
+        0,
+        Math.PI * 2
+      );
+      ctx.fillStyle = `${color}33`; // Add 33 for 20% opacity
+      ctx.fill();
+
+      // Draw center dot
+      ctx.beginPath();
+      ctx.arc(
+        cursorPosition.x,
+        cursorPosition.y,
+        1,
+        0,
+        Math.PI * 2
+      );
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+  }, [cursorPosition, brushSize, tool, color]);
+
+  useEffect(() => {
+    if (!fabricCanvas) return;
+
+    // Configure the free drawing brush
+    const configureBrush = () => {
+      if (!fabricCanvas.freeDrawingBrush) {
+        fabricCanvas.freeDrawingBrush = new PencilBrush(fabricCanvas);
+      }
+
+      if (fabricCanvas.freeDrawingBrush) {
+        const brush = fabricCanvas.freeDrawingBrush;
+        brush.color = color;
+        brush.width = brushSize;
+        (brush as any).globalCompositeOperation = 'source-over';
+        if (fabricCanvas.contextTop) {
+          fabricCanvas.contextTop.globalCompositeOperation = 'source-over';
+        }
+      }
+    };
+
+    // Handle path creation
+    const handlePathCreated = (e: any) => {
+      if (!e.path) return;
+      
+      const path = e.path;
+      path.set({
+        stroke: color,
+        strokeWidth: brushSize,
+        selectable: false,
+        evented: false,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
+      });
+    };
+
+    // Handle mouse events
+    const handleMouseMove = (e: any) => {
+      const pointer = fabricCanvas.getPointer(e.e);
+      setCursorPosition({ x: pointer.x, y: pointer.y });
+    };
+
+    // Add event listeners
+    fabricCanvas.on('path:created', handlePathCreated);
+    fabricCanvas.on('mouse:move', handleMouseMove);
+
+    // Initial configuration
+    configureBrush();
+
+    return () => {
+      fabricCanvas.off('path:created', handlePathCreated);
+      fabricCanvas.off('mouse:move', handleMouseMove);
+    };
+  }, [fabricCanvas, color, brushSize]);
+
   return (
     <div className="min-h-screen bg-gray-100 overflow-hidden">
       <canvas ref={canvasRef} className="touch-none" />
+      <canvas 
+        ref={cursorCanvasRef}
+        className="fixed inset-0 pointer-events-none z-40"
+        style={{
+          display: tool === 'brush' ? 'block' : 'none'
+        }}
+      />
       
       <AnimatePresence>
         {contextMenu && (
@@ -1104,95 +1113,37 @@ function App() {
               />
             </div>
 
-            <div className="size-popup-wrapper" ref={eraserPopupRef}>
-              <ToolButton
-                isActive={tool === 'eraser'}
-                onClick={() => {
-                  handleToolChange('eraser');
-                  setActivePopup('eraser');
-                  setShowSizePopup(true);
-                  setShowColorPicker(false);
-                }}
-              >
-                <EraserIcon className="w-6 h-6" />
-              </ToolButton>
-              <SizePopup
-                isOpen={showSizePopup && activePopup === 'eraser'}
-                onClose={() => {
-                  setShowSizePopup(false);
-                  setActivePopup(null);
-                }}
-                size={brushSize}
-                onSizeChange={setBrushSize}
-                tool={tool}
-              />
-            </div>
-
             <div className="color-picker-wrapper" ref={colorPickerRef}>
               <ToolButton
                 isActive={showColorPicker}
                 onClick={() => {
                   setShowColorPicker(!showColorPicker);
-                  setActivePopup(showColorPicker ? null : 'color');
                   setShowSizePopup(false);
+                  setActivePopup('color');
                 }}
-                style={{ 
-                  backgroundColor: color,
-                  color: color === '#000000' ? 'white' : 'black'
-                }}
+                style={{ backgroundColor: color }}
               >
                 <SwatchIcon className="w-6 h-6" />
               </ToolButton>
-
-              <AnimatePresence>
-                {showColorPicker && (
-                  <motion.div
-                    className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-4 
-                             bg-white rounded-2xl p-3 shadow-xl z-50"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 10 }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <HexColorPicker color={color} onChange={setColor} />
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {showColorPicker && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute bottom-full mb-2 shadow-lg rounded-lg overflow-hidden"
+                >
+                  <HexColorPicker color={color} onChange={setColor} />
+                </motion.div>
+              )}
             </div>
 
-            <div className="size-popup-wrapper" ref={uploadButtonRef}>
+            <div className="upload-wrapper" ref={uploadButtonRef}>
               <ToolButton
-                isActive={showUploadModal}
-                onClick={() => {
-                  setShowUploadModal(!showUploadModal);
-                  setShowSizePopup(false);
-                  setShowColorPicker(false);
-                  setActivePopup(null);
-                }}
+                isActive={false}
+                onClick={() => setShowUploadModal(true)}
               >
                 <PhotoIcon className="w-6 h-6" />
               </ToolButton>
-
-              <AnimatePresence>
-                {showUploadModal && (
-                  <div className="popup-container">
-                    <motion.div
-                      className="size-popup"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 10 }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <UploadModal
-                        isOpen={showUploadModal}
-                        onClose={() => setShowUploadModal(false)}
-                        onUpload={handleFileUpload}
-                      />
-                      <div className="popup-arrow" />
-                    </motion.div>
-                  </div>
-                )}
-              </AnimatePresence>
             </div>
 
             <ToolButton
@@ -1211,6 +1162,16 @@ function App() {
           </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showUploadModal && (
+          <UploadModal
+            isOpen={showUploadModal}
+            onClose={() => setShowUploadModal(false)}
+            onUpload={handleFileUpload}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
