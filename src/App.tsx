@@ -335,6 +335,18 @@ class FabricVideo extends FabricImage {
   }
 }
 
+// Add this function before the App component
+const isColorLight = (color: string): boolean => {
+  const hex = color.replace('#', '');
+  const r = parseInt(hex.substr(0, 2), 16);
+  const g = parseInt(hex.substr(2, 2), 16);
+  const b = parseInt(hex.substr(4, 2), 16);
+  
+  // Calculate relative luminance
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.5;
+};
+
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [fabricCanvas, setFabricCanvas] = useState<Canvas | null>(null);
@@ -868,11 +880,12 @@ function App() {
       img.onload = () => {
         tempCtx.drawImage(img, 0, 0);
         
-        // Position the temp canvas over the fabric canvas
-        tempCanvas.style.position = 'absolute';
-        tempCanvas.style.top = canvasRef.current?.offsetTop + 'px';
-        tempCanvas.style.left = canvasRef.current?.offsetLeft + 'px';
-        tempCanvas.style.zIndex = '1000';
+        // Position the temp canvas over the fabric canvas but below the toolbar
+        tempCanvas.style.position = 'fixed';
+        tempCanvas.style.top = '0';
+        tempCanvas.style.left = '0';
+        tempCanvas.style.zIndex = '30';
+        tempCanvas.style.pointerEvents = 'none';
         document.body.appendChild(tempCanvas);
         
         // Animate and clear
@@ -1144,7 +1157,10 @@ function App() {
                   setShowSizePopup(false);
                   setActivePopup('color');
                 }}
-                style={{ backgroundColor: color }}
+                style={{ 
+                  backgroundColor: color,
+                  color: isColorLight(color) ? '#000000' : '#FFFFFF'
+                }}
               >
                 <SwatchIcon className="w-6 h-6" />
               </ToolButton>
