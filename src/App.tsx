@@ -250,25 +250,44 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose, onSelectTool }
 class FabricVideo extends FabricImage {
   videoElement: HTMLVideoElement | null;
   isPlaying: boolean;
+  erasable?: boolean;
+  private frameRequestId: number | null;
+  private lastFrameTime: number;
+  private tempCanvas: HTMLCanvasElement;
+  private tempCtx: CanvasRenderingContext2D | null;
 
   constructor(element: HTMLImageElement) {
     super(element);
     this.videoElement = null;
     this.isPlaying = false;
+    this.erasable = false;
+    this.frameRequestId = null;
+    this.lastFrameTime = 0;
+    // Create persistent temp canvas for better performance
+    this.tempCanvas = document.createElement('canvas');
+    this.tempCtx = this.tempCanvas.getContext('2d', {
+      willReadFrequently: true,
+      alpha: false
+    });
   }
 
   static async fromVideo(file: File): Promise<FabricVideo> {
     return new Promise((resolve, reject) => {
       const videoElement = document.createElement('video');
       videoElement.crossOrigin = 'anonymous';
-      videoElement.muted = true;
+      videoElement.muted = false;
       videoElement.src = URL.createObjectURL(file);
+      videoElement.playsInline = true;
+      videoElement.controls = false;
 
       videoElement.onloadedmetadata = () => {
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = videoElement.videoWidth;
         tempCanvas.height = videoElement.videoHeight;
-        const ctx = tempCanvas.getContext('2d');
+        const ctx = tempCanvas.getContext('2d', {
+          willReadFrequently: true,
+          alpha: false
+        });
         if (!ctx) {
           reject(new Error('Failed to get canvas context'));
           return;
@@ -281,6 +300,12 @@ class FabricVideo extends FabricImage {
           img.onload = () => {
             const fabricVideo = new FabricVideo(img);
             fabricVideo.videoElement = videoElement;
+            if (fabricVideo.videoElement) {
+              fabricVideo.videoElement.volume = 1.0;
+            }
+            // Initialize temp canvas dimensions
+            fabricVideo.tempCanvas.width = videoElement.videoWidth;
+            fabricVideo.tempCanvas.height = videoElement.videoHeight;
             resolve(fabricVideo);
           };
           img.src = tempCanvas.toDataURL();
@@ -293,10 +318,54 @@ class FabricVideo extends FabricImage {
     });
   }
 
+  updateFrame(timestamp: number) {
+    if (!this.videoElement || !this.isPlaying || !this.tempCtx) return;
+
+    // Calculate time since last frame
+    const elapsed = timestamp - this.lastFrameTime;
+    const frameInterval = 1000 / 60; // Target 60fps
+
+    // Only update if enough time has passed
+    if (elapsed >= frameInterval) {
+      this.lastFrameTime = timestamp;
+
+      // Draw to temp canvas
+      this.tempCtx.drawImage(this.videoElement, 0, 0, this.tempCanvas.width, this.tempCanvas.height);
+      
+      // Update fabric object
+      const dataUrl = this.tempCanvas.toDataURL('image/jpeg', 1.0);
+      const img = new Image();
+      img.onload = () => {
+        this._element = img;
+        this.dirty = true;
+        this.canvas?.requestRenderAll();
+      };
+      img.src = dataUrl;
+    }
+
+    // Request next frame
+    if (this.isPlaying) {
+      this.frameRequestId = requestAnimationFrame(this.updateFrame.bind(this));
+    }
+  }
+
   play() {
     if (this.videoElement && !this.isPlaying) {
-      this.videoElement.play();
+      const playPromise = this.videoElement.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(error => {
+          console.error('Error playing video:', error);
+          if (error.name === 'NotAllowedError') {
+            this.videoElement!.muted = true;
+            this.videoElement!.play().catch(e => {
+              console.error('Error playing muted video:', e);
+            });
+          }
+        });
+      }
       this.isPlaying = true;
+      this.lastFrameTime = performance.now();
+      this.frameRequestId = requestAnimationFrame(this.updateFrame.bind(this));
     }
   }
 
@@ -304,23 +373,9 @@ class FabricVideo extends FabricImage {
     if (this.videoElement && this.isPlaying) {
       this.videoElement.pause();
       this.isPlaying = false;
-    }
-  }
-
-  updateFrame() {
-    if (this.videoElement && this.isPlaying) {
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = this.videoElement.videoWidth;
-      tempCanvas.height = this.videoElement.videoHeight;
-      const ctx = tempCanvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(this.videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
-        const img = new Image();
-        img.onload = () => {
-          this._element = img;
-          this.dirty = true;
-        };
-        img.src = tempCanvas.toDataURL();
+      if (this.frameRequestId !== null) {
+        cancelAnimationFrame(this.frameRequestId);
+        this.frameRequestId = null;
       }
     }
   }
@@ -331,7 +386,37 @@ class FabricVideo extends FabricImage {
       URL.revokeObjectURL(this.videoElement.src);
       this.videoElement = null;
     }
+    if (this.frameRequestId !== null) {
+      cancelAnimationFrame(this.frameRequestId);
+      this.frameRequestId = null;
+    }
+    // Clean up temp canvas
+    this.tempCtx = null;
     super.dispose();
+  }
+
+  setVolume(volume: number) {
+    if (this.videoElement) {
+      this.videoElement.volume = Math.max(0, Math.min(1, volume));
+    }
+  }
+
+  mute() {
+    if (this.videoElement) {
+      this.videoElement.muted = true;
+    }
+  }
+
+  unmute() {
+    if (this.videoElement) {
+      this.videoElement.muted = false;
+    }
+  }
+
+  toggleMute() {
+    if (this.videoElement) {
+      this.videoElement.muted = !this.videoElement.muted;
+    }
   }
 }
 
@@ -413,7 +498,8 @@ function App() {
         noScaleCache: false,
         strokeUniform: true,
         lockScalingFlip: true,
-        crossOrigin: 'anonymous'
+        crossOrigin: 'anonymous',
+        erasable: false
       });
 
       // Only show corner controls
@@ -487,7 +573,8 @@ function App() {
         noScaleCache: false,
         strokeUniform: true,
         lockScalingFlip: true,
-        opacity: 0
+        opacity: 0,
+        erasable: false
       });
 
       // Only show corner controls
@@ -524,21 +611,6 @@ function App() {
           fabricVideo.play();
         }
       });
-
-      // Update video frames
-      const updateVideoFrame = () => {
-        if (fabricVideo.isPlaying) {
-          fabricVideo.updateFrame();
-          fabricCanvas.renderAll();
-          requestAnimationFrame(updateVideoFrame);
-        }
-      };
-
-      if (fabricVideo.videoElement) {
-        fabricVideo.videoElement.addEventListener('play', () => {
-          updateVideoFrame();
-        });
-      }
 
       // Add to canvas with animation
       fabricCanvas.add(fabricVideo);
@@ -746,6 +818,22 @@ function App() {
           strokeLineJoin: 'round',
           fill: null
         });
+
+        // Get all objects and sort them so media stays on top
+        const objects = fabricCanvas.getObjects();
+        const mediaObjects = objects.filter(obj => 
+          obj instanceof FabricImage || obj instanceof FabricVideo
+        );
+        const otherObjects = objects.filter(obj => 
+          !(obj instanceof FabricImage) && !(obj instanceof FabricVideo)
+        );
+
+        // Clear canvas objects
+        fabricCanvas.clear();
+
+        // Add back in correct order: eraser paths at bottom, media on top
+        otherObjects.forEach(obj => fabricCanvas.add(obj));
+        mediaObjects.forEach(obj => fabricCanvas.add(obj));
       } else {
         path.set({
           stroke: color,
@@ -833,27 +921,28 @@ function App() {
       
       // Update all objects' selection style
       fabricCanvas.getObjects().forEach(obj => {
-        if (obj instanceof FabricImage) {
-          const isSelectTool = tool === 'select';
-          obj.set({
-            selectable: isSelectTool,
-            evented: isSelectTool,
-            hasControls: isSelectTool,
-            hasBorders: isSelectTool,
-            hoverCursor: isSelectTool ? 'move' : 'crosshair',
-            visible: true,
-            opacity: 1,
-          });
+        // Only allow selection of images and videos
+        const isSelectableObject = obj instanceof FabricImage || obj instanceof FabricVideo;
+        const isSelectTool = tool === 'select';
+        
+        obj.set({
+          selectable: isSelectTool && isSelectableObject,
+          evented: isSelectTool && isSelectableObject,
+          hasControls: isSelectTool && isSelectableObject,
+          hasBorders: isSelectTool && isSelectableObject,
+          hoverCursor: isSelectTool && isSelectableObject ? 'move' : 'crosshair',
+          visible: true,
+          opacity: 1,
+        });
 
-          if (isSelectTool) {
-            obj.setControlsVisibility({
-              mtr: false,
-              ml: false,
-              mr: false,
-              mt: false,
-              mb: false
-            });
-          }
+        if (isSelectTool && isSelectableObject) {
+          obj.setControlsVisibility({
+            mtr: false,
+            ml: false,
+            mr: false,
+            mt: false,
+            mb: false
+          });
         }
       });
       
@@ -868,19 +957,39 @@ function App() {
 
   const clearCanvas = useCallback(() => {
     if (fabricCanvas) {
-      // Create a snapshot of current canvas
+      // Store media objects to preserve them
+      const mediaObjects = fabricCanvas.getObjects().filter(obj => 
+        obj instanceof FabricImage || obj instanceof FabricVideo
+      );
+
+      // Properly dispose of video elements
+      fabricCanvas.getObjects().forEach(obj => {
+        if (obj instanceof FabricVideo) {
+          obj.dispose(); // This will stop video playback and clean up resources
+        }
+      });
+
+      // Create a snapshot for fade-out animation
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = fabricCanvas.width!;
       tempCanvas.height = fabricCanvas.height!;
-      const tempCtx = tempCanvas.getContext('2d')!;
+      const tempCtx = tempCanvas.getContext('2d', {
+        willReadFrequently: true,
+        alpha: true
+      })!;
       
       // Draw current canvas state to temp canvas
-      const dataUrl = fabricCanvas.toDataURL();
+      const dataUrl = fabricCanvas.toDataURL({
+        format: 'png',
+        quality: 0.8,
+        multiplier: 1
+      });
+      
       const img = new Image();
       img.onload = () => {
         tempCtx.drawImage(img, 0, 0);
         
-        // Position the temp canvas over the fabric canvas but below the toolbar
+        // Position the temp canvas
         tempCanvas.style.position = 'fixed';
         tempCanvas.style.top = '0';
         tempCanvas.style.left = '0';
@@ -891,19 +1000,88 @@ function App() {
         // Animate and clear
         gsap.to(tempCanvas, {
           opacity: 0,
-          duration: 0.5,
+          duration: 0.3,
+          ease: 'power2.out',
           onComplete: () => {
             document.body.removeChild(tempCanvas);
+            URL.revokeObjectURL(img.src);
           }
         });
         
-        // Clear the actual canvas
+        // Clear the canvas and restore media objects
         fabricCanvas.clear();
         fabricCanvas.backgroundColor = '#FFFFFF';
-        fabricCanvas.renderAll();
+        
+        // Add back media objects
+        mediaObjects.forEach(obj => {
+          fabricCanvas.add(obj);
+        });
+        
+        fabricCanvas.requestRenderAll();
       };
+      
       img.src = dataUrl;
     }
+  }, [fabricCanvas]);
+
+  // Add a new effect for canvas performance optimization
+  useEffect(() => {
+    if (!fabricCanvas) return;
+
+    // Optimize canvas rendering
+    fabricCanvas.set({
+      enableRetinaScaling: true,
+      renderOnAddRemove: false,
+      skipTargetFind: false,
+      stopContextMenu: true
+    });
+
+    // Batch rendering for better performance
+    let renderTimeout: NodeJS.Timeout;
+    const debouncedRender = () => {
+      clearTimeout(renderTimeout);
+      renderTimeout = setTimeout(() => {
+        fabricCanvas.renderAll();
+      }, 5);
+    };
+
+    fabricCanvas.on('object:modified', debouncedRender);
+    fabricCanvas.on('object:added', debouncedRender);
+    fabricCanvas.on('object:removed', debouncedRender);
+
+    // Optimize path rendering
+    if (fabricCanvas.freeDrawingBrush) {
+      const brush = fabricCanvas.freeDrawingBrush;
+      // Set properties directly instead of using set method
+      (brush as any).decimate = 2; // Reduce number of points in paths
+      brush.strokeLineCap = 'round';
+      brush.strokeLineJoin = 'round';
+    }
+
+    return () => {
+      clearTimeout(renderTimeout);
+      fabricCanvas.off('object:modified', debouncedRender);
+      fabricCanvas.off('object:added', debouncedRender);
+      fabricCanvas.off('object:removed', debouncedRender);
+    };
+  }, [fabricCanvas]);
+
+  // Add memory cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      if (fabricCanvas) {
+        // Cleanup all video elements
+        fabricCanvas.getObjects().forEach(obj => {
+          if (obj instanceof FabricVideo) {
+            obj.dispose();
+          }
+        });
+        
+        // Clear canvas and dispose
+        fabricCanvas.clear();
+        fabricCanvas.dispose();
+      }
+    };
   }, [fabricCanvas]);
 
   // Close popups when clicking outside
