@@ -10,7 +10,7 @@
       sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    @apply bg-gray-100 overflow-hidden;
+    @apply bg-white overflow-hidden;
   }
 }
 
@@ -31,7 +31,8 @@
   .toolbar-container {
     @apply fixed bottom-8 left-0 right-0 
            flex justify-center items-center 
-           pointer-events-none;
+           pointer-events-none
+           z-50;
   }
 
   .toolbar {

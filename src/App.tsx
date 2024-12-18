@@ -357,9 +357,9 @@ function App() {
 
     const canvas = new Canvas(canvasRef.current, {
       width: window.innerWidth,
-      height: window.innerHeight - 100,
+      height: window.innerHeight,
       isDrawingMode: true,
-      backgroundColor: '#F3F4F6',
+      backgroundColor: '#FFFFFF',
       selection: true,
       preserveObjectStacking: true,
     });
@@ -368,6 +368,7 @@ function App() {
     const brush = new PencilBrush(canvas);
     brush.width = 5;
     brush.color = '#000000';
+    (brush as any).globalCompositeOperation = 'source-over';
     canvas.freeDrawingBrush = brush;
 
     setFabricCanvas(canvas);
@@ -678,7 +679,7 @@ function App() {
 
     const handleResize = () => {
       canvas.setWidth(window.innerWidth);
-      canvas.setHeight(window.innerHeight - 100);
+      canvas.setHeight(window.innerHeight);
       canvas.renderAll();
     };
 
@@ -698,12 +699,12 @@ function App() {
 
     // Configure brush based on tool
     if (tool === 'eraser') {
+      brush.color = '#FFFFFF';
       brush.width = brushSize;
-      brush.color = fabricCanvas.backgroundColor as string;
       (brush as any).globalCompositeOperation = 'destination-out';
     } else {
-      brush.width = brushSize;
       brush.color = color;
+      brush.width = brushSize;
       (brush as any).globalCompositeOperation = 'source-over';
     }
 
@@ -717,43 +718,43 @@ function App() {
       obj.evented = tool === 'select';
     });
 
-    // Handle path creation
+    // Handle path creation and cursor position
     const handlePathCreated = (e: any) => {
       if (!e.path) return;
 
       const path = e.path;
-      const pathConfig = {
-        selectable: false,
-        evented: false,
-        strokeLineCap: 'round',
-        strokeLineJoin: 'round',
-        strokeWidth: brushSize,
-      };
-
       if (tool === 'eraser') {
         path.set({
-          ...pathConfig,
-          stroke: fabricCanvas.backgroundColor as string,
+          stroke: '#FFFFFF',
+          strokeWidth: brushSize,
           globalCompositeOperation: 'destination-out',
+          selectable: false,
+          evented: false,
+          strokeLineCap: 'round',
+          strokeLineJoin: 'round',
+          fill: null
         });
       } else {
         path.set({
-          ...pathConfig,
           stroke: color,
+          strokeWidth: brushSize,
           globalCompositeOperation: 'source-over',
+          selectable: false,
+          evented: false,
+          strokeLineCap: 'round',
+          strokeLineJoin: 'round',
+          fill: null
         });
       }
 
       fabricCanvas.renderAll();
     };
 
-    // Handle mouse movement for cursor
     const handleMouseMove = (e: any) => {
       const pointer = fabricCanvas.getPointer(e.e);
       setCursorPosition({ x: pointer.x, y: pointer.y });
     };
 
-    // Set up event listeners
     fabricCanvas.on('path:created', handlePathCreated);
     fabricCanvas.on('mouse:move', handleMouseMove);
 
@@ -885,7 +886,7 @@ function App() {
         
         // Clear the actual canvas
         fabricCanvas.clear();
-        fabricCanvas.backgroundColor = '#F3F4F6';
+        fabricCanvas.backgroundColor = '#FFFFFF';
         fabricCanvas.renderAll();
       };
       img.src = dataUrl;
